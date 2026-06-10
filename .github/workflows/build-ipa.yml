@@ -1,0 +1,66 @@
+name: Build TrollStore IPA
+
+on:
+  push:
+    branches:
+      - build-ipa
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Build channel (prod or dev)'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+          - prod
+          - dev
+
+env:
+  FLUTTER_VERSION: '3.38.5'
+
+jobs:
+  build-ipa:
+    name: Build TrollStore IPA
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2.21.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Cache Pods
+        uses: actions/cache@v5
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Prepare iOS dependencies
+        run: |
+          CHANNEL_NAME="${{ github.event.inputs.channel || 'prod' }}"
+          echo "Building on channel: $CHANNEL_NAME"
+          make CHANNEL=$CHANNEL_NAME ios-prepare
+
+      - name: Build iOS App (No Codesign)
+        run: |
+          flutter build ios --release --no-codesign
+
+      - name: Package TrollStore IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/*.app Payload/
+          zip -r Hiddify-TrollStore.ipa Payload
+          ls -lh Hiddify-TrollStore.ipa
+
+      - name: Upload TrollStore IPA Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: Hiddify-TrollStore-IPA
+          path: Hiddify-TrollStore.ipa
+          retention-days: 7
