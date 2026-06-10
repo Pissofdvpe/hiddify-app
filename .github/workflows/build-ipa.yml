@@ -53,12 +53,12 @@ jobs:
 
       - name: Package TrollStore IPA
         run: |
+          rm -rf Payload
           mkdir -p Payload
-          # Explicitly copy Runner.app
-          cp -R build/ios/iphoneos/Runner.app Payload/
-          # Perform ad-hoc codesigning on the app bundle and frameworks (essential for loader and resigning tools)
-          codesign --force --deep --sign - Payload/Runner.app
-          # MUST use -y (or -ry) to preserve symbolic links (critical for Flutter.framework and other embedded libs)
+          # Copy Runner.app using -P to preserve symbolic links during copy
+          cp -PR build/ios/iphoneos/Runner.app Payload/
+          # Do NOT codesign: TrollStore prefers completely unsigned IPAs to re-sign with ldid
+          # Package into IPA using -y to preserve symbolic links in zip
           zip -ry Hiddify-TrollStore.ipa Payload
           ls -lh Hiddify-TrollStore.ipa
 
