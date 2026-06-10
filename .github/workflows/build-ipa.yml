@@ -54,7 +54,7 @@ jobs:
       - name: Package TrollStore IPA
         run: |
           mkdir -p Payload
-          cp -r build/ios/iphoneos/*.app Payload/
+          cp -R build/ios/iphoneos/*.app Payload/
           zip -r Hiddify-TrollStore.ipa Payload
           ls -lh Hiddify-TrollStore.ipa
 
