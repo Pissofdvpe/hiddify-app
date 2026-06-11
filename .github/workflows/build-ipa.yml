@@ -53,20 +53,28 @@ jobs:
 
       - name: Package TrollStore IPA
         run: |
-          # 1. Create a self-signed certificate with a dummy Team ID (OU=TrollStoreID)
+          # 1. Create a self-signed codesigning certificate with a dummy Team ID (OU=TrollStoreID)
+          # We MUST add extendedKeyUsage = codeSigning so that codesign recognizes it as a valid codesigning identity!
           openssl genrsa -out key.pem 2048
           openssl req -new -key key.pem -out req.csr -subj "/CN=TrollStore/OU=TrollStoreID"
-          openssl x509 -req -days 3650 -in req.csr -signkey key.pem -out cert.pem
+          
+          cat << 'EOF' > cert.ext
+keyUsage = digitalSignature
+extendedKeyUsage = codeSigning
+EOF
+          openssl x509 -req -days 3650 -in req.csr -signkey key.pem -out cert.pem -extfile cert.ext
           openssl pkcs12 -export -out cert.p12 -inkey key.pem -in cert.pem -password pass:123456
 
-          # 2. Setup a temporary keychain on the macOS runner
-          security create-keychain -p "123456" signing_temp.keychain
-          security default-keychain -s signing_temp.keychain
-          security unlock-keychain -p "123456" signing_temp.keychain
-          security import cert.p12 -k signing_temp.keychain -P "123456" -T /usr/bin/codesign
-          # Append the temporary keychain to the keychain search list statically
-          security list-keychains -s signing_temp.keychain login.keychain
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "123456" signing_temp.keychain
+          # 2. Setup a temporary keychain on the macOS runner using absolute path
+          KEYCHAIN_PATH="$(pwd)/signing_temp.keychain"
+          security create-keychain -p "123456" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security unlock-keychain -p "123456" "$KEYCHAIN_PATH"
+          security import cert.p12 -k "$KEYCHAIN_PATH" -P "123456" -T /usr/bin/codesign
+          
+          # Append our keychain to the user search list so codesign can locate it
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | xargs)
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "123456" "$KEYCHAIN_PATH"
 
           # 3. Re-create the Payload directory and copy Runner.app preserving symlinks
           rm -rf Payload
@@ -112,8 +120,8 @@ jobs:
           ls -lh Hiddify-TrollStore.ipa
 
           # 10. Clean up keychain and cert files
-          security delete-keychain signing_temp.keychain
-          rm -f key.pem req.csr cert.pem cert.p12 Runner.entitlements.tmp HiddifyPacketTunnel.entitlements.tmp
+          security delete-keychain "$KEYCHAIN_PATH"
+          rm -f key.pem req.csr cert.pem cert.p12 cert.ext Runner.entitlements.tmp HiddifyPacketTunnel.entitlements.tmp
 
       - name: Upload TrollStore IPA Artifact
         uses: actions/upload-artifact@v6
