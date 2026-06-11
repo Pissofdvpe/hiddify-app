@@ -84,13 +84,12 @@ jobs:
             local bundle_id="$1"
             local output_file="$2"
             
-            cat << "            EOF" | sed 's/^            //' > profile.plist
-            <?xml version="1.0" encoding="UTF-8"?>
+            printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>
             <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
             <plist version="1.0">
             <dict>
             	<key>AppIDName</key>
-            	<string>${bundle_id}</string>
+            	<string>'"${bundle_id}"'</string>
             	<key>ApplicationIdentifierPrefix</key>
             	<array>
             		<string>TrollStoreID</string>
@@ -103,7 +102,7 @@ jobs:
             	<dict>
             		<key>keychain-access-groups</key>
             		<array>
-            			<string>TrollStoreID.${bundle_id}</string>
+            			<string>TrollStoreID.'"${bundle_id}"'</string>
             		</array>
             		<key>get-task-allow</key>
             		<true/>
@@ -125,7 +124,7 @@ jobs:
             		</array>
             	</dict>
             	<key>Name</key>
-            	<string>TrollStore Profile ${bundle_id}</string>
+            	<string>TrollStore Profile '"${bundle_id}"'</string>
             	<key>TeamIdentifier</key>
             	<array>
             		<string>TrollStoreID</string>
@@ -139,8 +138,7 @@ jobs:
             	<key>Version</key>
             	<integer>1</integer>
             </dict>
-            </plist>
-            EOF
+            </plist>' | sed 's/^[[:space:]]*//' > profile.plist
 
             openssl smime -sign -signer cert.pem -inkey key.pem -certfile cert.pem -nodetach -outform DER -in profile.plist -out "${output_file}"
             rm -f profile.plist
