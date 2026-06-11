@@ -131,8 +131,10 @@ jobs:
           echo "Signing Runner.app"
           codesign --force --sign - --entitlements Runner.entitlements.tmp --generate-entitlement-der Payload/Runner.app
 
-          # 8. Compress into IPA preserving symlinks
-          zip -ry Hiddify-TrollStore.ipa Payload
+          # 8. Compress into IPA preserving symlinks and excluding macOS metadata junk
+          xattr -cr Payload
+          find Payload -name ".DS_Store" -delete
+          zip -ry Hiddify-TrollStore.ipa Payload -x "*.DS_Store" -x "__MACOSX" -x "*/.DS_Store" -x "*/__MACOSX"
           ls -lh Hiddify-TrollStore.ipa
 
           # 9. Clean up temp files
