@@ -53,14 +53,49 @@ jobs:
 
       - name: Package TrollStore IPA
         run: |
+          # 1. Substitute the BASE_BUNDLE_IDENTIFIER in the entitlements files
+          sed 's/\$(BASE_BUNDLE_IDENTIFIER)/apple.hiddify.com/g' ios/Runner/Runner.entitlements > Runner.entitlements.tmp
+          sed 's/\$(BASE_BUNDLE_IDENTIFIER)/apple.hiddify.com/g' ios/HiddifyPacketTunnel/HiddifyPacketTunnel.entitlements > HiddifyPacketTunnel.entitlements.tmp
+
+          # 2. Re-create the Payload directory and copy Runner.app preserving symlinks
           rm -rf Payload
           mkdir -p Payload
-          # Copy Runner.app using -P to preserve symbolic links during copy
           cp -PR build/ios/iphoneos/Runner.app Payload/
-          # Do NOT codesign: TrollStore prefers completely unsigned IPAs to re-sign with ldid
-          # Package into IPA using -y to preserve symbolic links in zip
+
+          # 3. Sign all dynamic frameworks (excluding symlinks)
+          find Payload/Runner.app -name "*.framework" -type d | while read -r framework; do
+              if [ ! -L "$framework" ]; then
+                  echo "Signing framework: $framework"
+                  codesign --force --sign - --generate-entitlement-der "$framework"
+              fi
+          done
+
+          # 4. Sign all shared libraries (excluding symlinks)
+          find Payload/Runner.app -name "*.dylib" -type f | while read -r dylib; do
+              if [ ! -L "$dylib" ]; then
+                  echo "Signing dylib: $dylib"
+                  codesign --force --sign - --generate-entitlement-der "$dylib"
+              fi
+          done
+
+          # 5. Sign the App Extension inside PlugIns/ with its own entitlements
+          if [ -d "Payload/Runner.app/PlugIns/HiddifyPacketTunnel.appex" ]; then
+              echo "Signing HiddifyPacketTunnel.appex"
+              codesign --force --sign - --entitlements HiddifyPacketTunnel.entitlements.tmp --generate-entitlement-der Payload/Runner.app/PlugIns/HiddifyPacketTunnel.appex
+          else
+              echo "No HiddifyPacketTunnel.appex found!"
+          fi
+
+          # 6. Sign the main Runner.app executable with its own entitlements
+          echo "Signing Runner.app"
+          codesign --force --sign - --entitlements Runner.entitlements.tmp --generate-entitlement-der Payload/Runner.app
+
+          # 7. Compress into IPA preserving symlinks
           zip -ry Hiddify-TrollStore.ipa Payload
           ls -lh Hiddify-TrollStore.ipa
+
+          # 8. Clean up temp files
+          rm -f Runner.entitlements.tmp HiddifyPacketTunnel.entitlements.tmp
 
       - name: Upload TrollStore IPA Artifact
         uses: actions/upload-artifact@v6
