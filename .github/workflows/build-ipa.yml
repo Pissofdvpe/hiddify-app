@@ -53,22 +53,65 @@ jobs:
 
       - name: Package TrollStore IPA
         run: |
+          # 1. Create a self-signed certificate with a dummy Team ID (OU=TrollStoreID)
+          openssl genrsa -out key.pem 2048
+          openssl req -new -key key.pem -out req.csr -subj "/CN=TrollStore/OU=TrollStoreID"
+          openssl x509 -req -days 3650 -in req.csr -signkey key.pem -out cert.pem
+          openssl pkcs12 -export -out cert.p12 -inkey key.pem -in cert.pem -password pass:123456
+
+          # 2. Setup a temporary keychain on the macOS runner
+          security create-keychain -p "123456" signing_temp.keychain
+          security default-keychain -s signing_temp.keychain
+          security unlock-keychain -p "123456" signing_temp.keychain
+          security import cert.p12 -k signing_temp.keychain -P "123456" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "123456" signing_temp.keychain
+
+          # 3. Re-create the Payload directory and copy Runner.app preserving symlinks
           rm -rf Payload
           mkdir -p Payload
-          # Copy Runner.app using -P to preserve symbolic links
           cp -PR build/ios/iphoneos/Runner.app Payload/
 
-          # Perform ad-hoc codesigning on the app bundle and frameworks recursively.
-          # We do NOT specify --entitlements to let codesign preserve the correct, Xcode-compiled entitlements and structures.
-          codesign --force --deep --sign - Payload/Runner.app
+          # 4. Sign all dynamic frameworks (excluding symlinks) using our self-signed certificate
+          find Payload/Runner.app -name "*.framework" -type d | while read -r framework; do
+              if [ ! -L "$framework" ]; then
+                  echo "Signing framework: $framework"
+                  codesign --force --sign "TrollStore" --generate-entitlement-der "$framework"
+              fi
+          done
 
-          # Recursively clean macOS metadata junk from Payload
+          # 5. Sign all shared libraries (excluding symlinks)
+          find Payload/Runner.app -name "*.dylib" -type f | while read -r dylib; do
+              if [ ! -L "$dylib" ]; then
+                  echo "Signing dylib: $dylib"
+                  codesign --force --sign "TrollStore" --generate-entitlement-der "$dylib"
+              fi
+          done
+
+          # 6. Sign the App Extension inside PlugIns/ with its entitlements (resolving $(BASE_BUNDLE_IDENTIFIER) placeholder)
+          sed 's/\$(BASE_BUNDLE_IDENTIFIER)/apple.hiddify.com/g' ios/HiddifyPacketTunnel/HiddifyPacketTunnel.entitlements > HiddifyPacketTunnel.entitlements.tmp
+          if [ -d "Payload/Runner.app/PlugIns/HiddifyPacketTunnel.appex" ]; then
+              echo "Signing HiddifyPacketTunnel.appex"
+              codesign --force --sign "TrollStore" --entitlements HiddifyPacketTunnel.entitlements.tmp --generate-entitlement-der Payload/Runner.app/PlugIns/HiddifyPacketTunnel.appex
+          else
+              echo "No HiddifyPacketTunnel.appex found!"
+          fi
+
+          # 7. Sign the main Runner.app executable with its entitlements
+          sed 's/\$(BASE_BUNDLE_IDENTIFIER)/apple.hiddify.com/g' ios/Runner/Runner.entitlements > Runner.entitlements.tmp
+          echo "Signing Runner.app"
+          codesign --force --sign "TrollStore" --entitlements Runner.entitlements.tmp --generate-entitlement-der Payload/Runner.app
+
+          # 8. Recursively clean macOS metadata junk from Payload
           xattr -cr Payload
           find Payload -name ".DS_Store" -delete
 
-          # Compress into IPA preserving symlinks and excluding any macOS metadata junk
+          # 9. Compress into IPA preserving symlinks and excluding any macOS metadata junk
           zip -ry Hiddify-TrollStore.ipa Payload -x "*.DS_Store" -x "__MACOSX" -x "*/.DS_Store" -x "*/__MACOSX"
           ls -lh Hiddify-TrollStore.ipa
+
+          # 10. Clean up keychain and cert files
+          security delete-keychain signing_temp.keychain
+          rm -f key.pem req.csr cert.pem cert.p12 Runner.entitlements.tmp HiddifyPacketTunnel.entitlements.tmp
 
       - name: Upload TrollStore IPA Artifact
         uses: actions/upload-artifact@v6
