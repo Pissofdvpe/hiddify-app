@@ -78,6 +78,7 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -PR build/ios/iphoneos/Runner.app Payload/
+          rm -rf Payload/Runner.app/AppIcon.icon
 
           # 3.5 Generate dummy provisioning profiles to prevent TrollStore from crashing on import
           generate_profile() {
