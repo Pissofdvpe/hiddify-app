@@ -53,92 +53,22 @@ jobs:
 
       - name: Package TrollStore IPA
         run: |
-          # 1. Create clean entitlements for main app (removes macOS-specific keys and aps-environment) using echo to prevent YAML parser indentation errors
-          echo '<?xml version="1.0" encoding="UTF-8"?>' > Runner.entitlements.tmp
-          echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> Runner.entitlements.tmp
-          echo '<plist version="1.0">' >> Runner.entitlements.tmp
-          echo '<dict>' >> Runner.entitlements.tmp
-          echo '	<key>com.apple.developer.networking.networkextension</key>' >> Runner.entitlements.tmp
-          echo '	<array>' >> Runner.entitlements.tmp
-          echo '		<string>app-proxy-provider</string>' >> Runner.entitlements.tmp
-          echo '		<string>dns-proxy</string>' >> Runner.entitlements.tmp
-          echo '		<string>packet-tunnel-provider</string>' >> Runner.entitlements.tmp
-          echo '	</array>' >> Runner.entitlements.tmp
-          echo '	<key>com.apple.developer.networking.vpn.api</key>' >> Runner.entitlements.tmp
-          echo '	<array>' >> Runner.entitlements.tmp
-          echo '		<string>allow-vpn</string>' >> Runner.entitlements.tmp
-          echo '	</array>' >> Runner.entitlements.tmp
-          echo '	<key>com.apple.security.application-groups</key>' >> Runner.entitlements.tmp
-          echo '	<array>' >> Runner.entitlements.tmp
-          echo '		<string>group.apple.hiddify.com</string>' >> Runner.entitlements.tmp
-          echo '	</array>' >> Runner.entitlements.tmp
-          echo '</dict>' >> Runner.entitlements.tmp
-          echo '</plist>' >> Runner.entitlements.tmp
-
-          # 2. Create clean entitlements for packet tunnel extension (removes macOS-specific keys)
-          echo '<?xml version="1.0" encoding="UTF-8"?>' > HiddifyPacketTunnel.entitlements.tmp
-          echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '<plist version="1.0">' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '<dict>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '	<key>com.apple.developer.networking.networkextension</key>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '	<array>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '		<string>app-proxy-provider</string>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '		<string>dns-proxy</string>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '		<string>packet-tunnel-provider</string>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '		<string>content-filter-provider</string>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '	</array>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '	<key>com.apple.security.application-groups</key>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '	<array>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '		<string>group.apple.hiddify.com</string>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '	</array>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '	<key>com.apple.developer.networking.vpn.api</key>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '	<array>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '		<string>allow-vpn</string>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '	</array>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '</dict>' >> HiddifyPacketTunnel.entitlements.tmp
-          echo '</plist>' >> HiddifyPacketTunnel.entitlements.tmp
-
-          # 3. Re-create the Payload directory and copy Runner.app preserving symlinks
           rm -rf Payload
           mkdir -p Payload
+          # Copy Runner.app using -P to preserve symbolic links
           cp -PR build/ios/iphoneos/Runner.app Payload/
 
-          # 4. Sign all dynamic frameworks (excluding symlinks)
-          find Payload/Runner.app -name "*.framework" -type d | while read -r framework; do
-              if [ ! -L "$framework" ]; then
-                  echo "Signing framework: $framework"
-                  codesign --force --sign - --generate-entitlement-der "$framework"
-              fi
-          done
+          # Perform ad-hoc codesigning on the app bundle and frameworks recursively.
+          # We do NOT specify --entitlements to let codesign preserve the correct, Xcode-compiled entitlements and structures.
+          codesign --force --deep --sign - Payload/Runner.app
 
-          # 5. Sign all shared libraries (excluding symlinks)
-          find Payload/Runner.app -name "*.dylib" -type f | while read -r dylib; do
-              if [ ! -L "$dylib" ]; then
-                  echo "Signing dylib: $dylib"
-                  codesign --force --sign - --generate-entitlement-der "$dylib"
-              fi
-          done
-
-          # 6. Sign the App Extension inside PlugIns/ with its own entitlements
-          if [ -d "Payload/Runner.app/PlugIns/HiddifyPacketTunnel.appex" ]; then
-              echo "Signing HiddifyPacketTunnel.appex"
-              codesign --force --sign - --entitlements HiddifyPacketTunnel.entitlements.tmp --generate-entitlement-der Payload/Runner.app/PlugIns/HiddifyPacketTunnel.appex
-          else
-              echo "No HiddifyPacketTunnel.appex found!"
-          fi
-
-          # 7. Sign the main Runner.app executable with its own entitlements
-          echo "Signing Runner.app"
-          codesign --force --sign - --entitlements Runner.entitlements.tmp --generate-entitlement-der Payload/Runner.app
-
-          # 8. Compress into IPA preserving symlinks and excluding macOS metadata junk
+          # Recursively clean macOS metadata junk from Payload
           xattr -cr Payload
           find Payload -name ".DS_Store" -delete
+
+          # Compress into IPA preserving symlinks and excluding any macOS metadata junk
           zip -ry Hiddify-TrollStore.ipa Payload -x "*.DS_Store" -x "__MACOSX" -x "*/.DS_Store" -x "*/__MACOSX"
           ls -lh Hiddify-TrollStore.ipa
-
-          # 9. Clean up temp files
-          rm -f Runner.entitlements.tmp HiddifyPacketTunnel.entitlements.tmp
 
       - name: Upload TrollStore IPA Artifact
         uses: actions/upload-artifact@v6
