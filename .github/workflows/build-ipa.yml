@@ -64,6 +64,10 @@ jobs:
           security default-keychain -s signing_temp.keychain
           security unlock-keychain -p "123456" signing_temp.keychain
           security import cert.p12 -k signing_temp.keychain -P "123456" -T /usr/bin/codesign
+          # Append the temporary keychain to the keychain search list so codesign can search it
+          security list-keychains -d user -s signing_temp.keychain $(security list-keychains -d user | xargs)
+          # Mark the self-signed certificate as trusted for codesigning
+          security add-trusted-cert -d -r trustRoot -k signing_temp.keychain cert.pem
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "123456" signing_temp.keychain
 
           # 3. Re-create the Payload directory and copy Runner.app preserving symlinks
