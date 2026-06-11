@@ -79,6 +79,81 @@ jobs:
           mkdir -p Payload
           cp -PR build/ios/iphoneos/Runner.app Payload/
 
+          # 3.5 Generate dummy provisioning profiles to prevent TrollStore from crashing on import
+          generate_profile() {
+            local bundle_id="$1"
+            local output_file="$2"
+            
+            cat << "            EOF" | sed 's/^            //' > profile.plist
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+            	<key>AppIDName</key>
+            	<string>${bundle_id}</string>
+            	<key>ApplicationIdentifierPrefix</key>
+            	<array>
+            		<string>TrollStoreID</string>
+            	</array>
+            	<key>CreationDate</key>
+            	<date>2026-06-11T12:00:00Z</date>
+            	<key>ExpirationDate</key>
+            	<date>2036-06-11T12:00:00Z</date>
+            	<key>Entitlements</key>
+            	<dict>
+            		<key>keychain-access-groups</key>
+            		<array>
+            			<string>TrollStoreID.${bundle_id}</string>
+            		</array>
+            		<key>get-task-allow</key>
+            		<true/>
+            		<key>com.apple.developer.team-identifier</key>
+            		<string>TrollStoreID</string>
+            		<key>com.apple.developer.networking.networkextension</key>
+            		<array>
+            			<string>app-proxy-provider</string>
+            			<string>dns-proxy</string>
+            			<string>packet-tunnel-provider</string>
+            		</array>
+            		<key>com.apple.developer.networking.vpn.api</key>
+            		<array>
+            			<string>allow-vpn</string>
+            		</array>
+            		<key>com.apple.security.application-groups</key>
+            		<array>
+            			<string>group.apple.hiddify.com</string>
+            		</array>
+            	</dict>
+            	<key>Name</key>
+            	<string>TrollStore Profile ${bundle_id}</string>
+            	<key>TeamIdentifier</key>
+            	<array>
+            		<string>TrollStoreID</string>
+            	</array>
+            	<key>TeamName</key>
+            	<string>TrollStore</string>
+            	<key>TimeToLive</key>
+            	<integer>3650</integer>
+            	<key>UUID</key>
+            	<string>87191ca2-0fc9-11d4-849a-000502b52122</string>
+            	<key>Version</key>
+            	<integer>1</integer>
+            </dict>
+            </plist>
+            EOF
+
+            openssl smime -sign -signer cert.pem -inkey key.pem -certfile cert.pem -nodetach -outform DER -in profile.plist -out "${output_file}"
+            rm -f profile.plist
+          }
+
+          echo "Generating dummy embedded.mobileprovision for main app..."
+          generate_profile "apple.hiddify.com" "Payload/Runner.app/embedded.mobileprovision"
+          
+          if [ -d "Payload/Runner.app/PlugIns/HiddifyPacketTunnel.appex" ]; then
+              echo "Generating dummy embedded.mobileprovision for VPN extension..."
+              generate_profile "apple.hiddify.com.HiddifyPacketTunnel" "Payload/Runner.app/PlugIns/HiddifyPacketTunnel.appex/embedded.mobileprovision"
+          fi
+
           # 4. Sign all dynamic frameworks (excluding symlinks) using our self-signed certificate
           find Payload/Runner.app -name "*.framework" -type d | while read -r framework; do
               if [ ! -L "$framework" ]; then
