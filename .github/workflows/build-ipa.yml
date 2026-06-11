@@ -57,11 +57,9 @@ jobs:
           # We MUST add extendedKeyUsage = codeSigning so that codesign recognizes it as a valid codesigning identity!
           openssl genrsa -out key.pem 2048
           openssl req -new -key key.pem -out req.csr -subj "/CN=TrollStore/OU=TrollStoreID"
-          
-          cat << 'EOF' > cert.ext
-keyUsage = digitalSignature
-extendedKeyUsage = codeSigning
-EOF
+          # Write cert.ext using echo statements to avoid YAML syntax errors
+          echo 'keyUsage = digitalSignature' > cert.ext
+          echo 'extendedKeyUsage = codeSigning' >> cert.ext
           openssl x509 -req -days 3650 -in req.csr -signkey key.pem -out cert.pem -extfile cert.ext
           openssl pkcs12 -export -out cert.p12 -inkey key.pem -in cert.pem -password pass:123456
 
